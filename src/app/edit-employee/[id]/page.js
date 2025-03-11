@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-export default function AddEmployee() {
+export default function EditEmployee() {
+  const params = useParams();
   const router = useRouter();
   const [formData, setFormData] = useState({
     name: '',
@@ -14,6 +15,27 @@ export default function AddEmployee() {
     salary: '',
     status: 'Active'
   });
+  
+  useEffect(() => {
+    // Fetch employee data from API
+    const fetchEmployee = async () => {
+      const response = await fetch(`/api/employees/${params.id}`);
+      const data = await response.json();
+      if (data) {
+        setFormData({
+          name: data.name,
+          position: data.position,
+          department: data.department,
+          email: data.email,
+          hireDate: data.hireDate,
+          salary: data.salary.toString(),
+          status: data.status
+        });
+      }
+    };
+    
+    fetchEmployee();
+  }, [params.id]);
   
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -26,8 +48,9 @@ export default function AddEmployee() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    const response = await fetch('/api/employees', {
-      method: 'POST',
+    // Update employee via API
+    const response = await fetch(`/api/employees/${params.id}`, {
+      method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
@@ -36,6 +59,18 @@ export default function AddEmployee() {
     
     if (response.ok) {
       router.push('/');
+    }
+  };
+  
+  const handleDelete = async () => {
+    if (confirm('Are you sure you want to delete this employee?')) {
+      const response = await fetch(`/api/employees/${params.id}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        router.push('/');
+      }
     }
   };
   
@@ -48,7 +83,7 @@ export default function AddEmployee() {
       </div>
       
       <div className="bg-white shadow rounded-lg p-6">
-        <h1 className="text-3xl font-bold mb-6">Add New Employee</h1>
+        <h1 className="text-3xl font-bold mb-6">Edit Employee</h1>
         
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -146,12 +181,20 @@ export default function AddEmployee() {
             </div>
           </div>
           
-          <div className="mt-6">
+          <div className="mt-6 flex space-x-4">
             <button
               type="submit"
               className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             >
-              Add Employee
+              Update Employee
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Delete Employee
             </button>
           </div>
         </form>

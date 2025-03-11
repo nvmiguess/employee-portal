@@ -1,7 +1,20 @@
-import employees from './data/employees';
+'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 export default function Home() {
+  const [employees, setEmployees] = useState([]);
+  
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      const response = await fetch('/api/employees');
+      const data = await response.json();
+      setEmployees(data);
+    };
+    
+    fetchEmployees();
+  }, []);
+  
   return (
     <main className="min-h-screen p-8">
       <h1 className="text-3xl font-bold mb-6">Employee Portal</h1>
