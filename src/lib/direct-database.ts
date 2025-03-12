@@ -84,6 +84,7 @@ export async function getCompanyById(id: number) {
       throw error;
     }
     
+    
     return data;
   } catch (error) {
     console.error(`DIRECT DATABASE: Failed to get company ${id}:`, error);
