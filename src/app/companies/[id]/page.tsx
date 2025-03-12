@@ -44,8 +44,8 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="mb-8">
-        <Link href="/companies" className="text-blue-500 hover:underline">
-          ← Back to Companies
+        <Link href="/" className="text-blue-500 hover:underline">
+          ← Back to Home
         </Link>
       </div>
       
