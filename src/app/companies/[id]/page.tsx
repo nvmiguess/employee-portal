@@ -4,6 +4,13 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getCompanyById, getEmployeesByCompanyId } from '../../../lib/database';
+import { createClient } from '@supabase/supabase-js';
+
+// Create a Supabase client directly
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 export default function CompanyDetailPage({ params }: { params: { id: string } }) {
   const [company, setCompany] = useState(null);
@@ -76,7 +83,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
         <div className="bg-white shadow rounded-lg p-6 text-center">
           <p className="text-gray-500">No employees found for this company.</p>
           <Link 
-            href={`/employees/new?company=${company.id}`}
+            href={`/companies/${company.id}/employees/new`}
             className="mt-4 inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
           >
             Add Employee
@@ -104,10 +111,10 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
                     {employee.position}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <Link href={`/employees/${employee.id}`} className="text-blue-600 hover:text-blue-900 mr-4">
+                    <Link href={`/companies/${company.id}/employees/${employee.id}`} className="text-blue-600 hover:text-blue-900 mr-4">
                       View
                     </Link>
-                    <Link href={`/employees/${employee.id}/edit`} className="text-indigo-600 hover:text-indigo-900">
+                    <Link href={`/companies/${company.id}/employees/${employee.id}/edit`} className="text-indigo-600 hover:text-indigo-900">
                       Edit
                     </Link>
                   </td>
@@ -122,7 +129,7 @@ export default function CompanyDetailPage({ params }: { params: { id: string } }
         <Link href={`/companies/${company.id}/edit`} className="px-4 py-2 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors">
           Edit Company
         </Link>
-        <Link href={`/employees/new?company=${company.id}`} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+        <Link href={`/companies/${company.id}/employees/new`} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
           Add Employee
         </Link>
       </div>
