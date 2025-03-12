@@ -1,4 +1,3 @@
-
 import { createClient } from '@supabase/supabase-js';
 
 // IMPORTANT: This file has been automatically modified to use Supabase directly
@@ -254,5 +253,23 @@ export async function checkDatabaseConnection() {
       version: null,
       error: error instanceof Error ? error.message : 'Unknown error'
     };
+  }
+}
+
+// Ensure this function is defined and exported
+export async function getEmployee(id: number) {
+  try {
+    const supabase = createFreshSupabaseClient();
+    const { data, error } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error(`Failed to get employee ${id}:`, error);
+    return null;
   }
 }

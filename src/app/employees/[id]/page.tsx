@@ -1,29 +1,26 @@
+'use client';
+
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getEmployee } from '@/lib/database';
+import { RealtimeEmployeeProvider, useRealtimeEmployee } from '@/components/RealtimeEmployeeProvider';
 
-async function fetchEmployee(id: number) {
-  try {
-    const employee = await getEmployee(id);
-    
-    if (!employee) {
-      notFound();
-    }
-    
-    return { employee, error: null };
-  } catch (error) {
-    console.error('Error fetching employee:', error);
-    return { 
-      employee: null, 
-      error: error instanceof Error ? error.message : 'Failed to load employee' 
-    };
-  }
+export default function EmployeeDetailPage({ params }: { params: { id: string } }) {
+  const id = parseInt(params.id);
+
+  return (
+    <RealtimeEmployeeProvider employeeId={id}>
+      <EmployeeDetail />
+    </RealtimeEmployeeProvider>
+  );
 }
 
-export default async function EmployeeDetailPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id);
-  const { employee, error } = await fetchEmployee(id);
-  
+const EmployeeDetail = () => {
+  const { employee, loading, error } = useRealtimeEmployee();
+
+  if (loading) {
+    return <div className="p-8 text-center">Loading...</div>;
+  }
+
   if (error || !employee) {
     return (
       <div className="p-8 max-w-4xl mx-auto">
@@ -40,11 +37,11 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
       </div>
     );
   }
-  
+
   // Format hire date for display
   const hireDate = new Date(employee.hire_date);
   const formattedHireDate = hireDate.toLocaleDateString();
-  
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="mb-6">
@@ -58,7 +55,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
           <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold">{employee.name}</h1>
             <Link 
-              href={`/employees/${id}/edit`}
+              href={`/employees/${employee.id}/edit`}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
             >
               Edit
@@ -71,39 +68,32 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h2 className="text-lg font-semibold mb-4">Employee Information</h2>
-              
               <div className="space-y-3">
                 <div>
                   <p className="text-sm text-gray-500">Position</p>
                   <p className="font-medium">{employee.position}</p>
                 </div>
-                
                 <div>
                   <p className="text-sm text-gray-500">Department</p>
                   <p className="font-medium">{employee.department}</p>
                 </div>
-                
                 <div>
                   <p className="text-sm text-gray-500">Status</p>
-                  <p className="inline-block px-2 py-1 text-sm font-semibold rounded-full 
-                    ${employee.status === 'Active' ? 'bg-green-100 text-green-800' : 
+                  <p className={`inline-block px-2 py-1 text-sm font-semibold rounded-full ${
+                    employee.status === 'Active' ? 'bg-green-100 text-green-800' : 
                     employee.status === 'On Leave' ? 'bg-yellow-100 text-yellow-800' : 
-                    'bg-red-100 text-red-800'}"
-                  >
+                    'bg-red-100 text-red-800'}`}>
                     {employee.status}
                   </p>
                 </div>
-                
                 <div>
                   <p className="text-sm text-gray-500">Hire Date</p>
                   <p className="font-medium">{formattedHireDate}</p>
                 </div>
               </div>
             </div>
-            
             <div>
               <h2 className="text-lg font-semibold mb-4">Company</h2>
-              
               {employee.company ? (
                 <div>
                   <Link 
@@ -122,4 +112,4 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
       </div>
     </div>
   );
-} 
+}; 

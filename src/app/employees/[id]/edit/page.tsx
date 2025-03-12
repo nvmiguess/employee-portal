@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getEmployees } from '../../../lib/database'; // Adjust the import as necessary
+import { createClient } from '@supabase/supabase-js';
+
+// Create a Supabase client directly
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 interface Company {
   id: number;
@@ -17,8 +23,8 @@ interface Employee {
   position: string;
   department: string;
   status: string;
-  companyId: number | null;
-  hireDate: string;
+  company_id: number | null;
+  hire_date: string;
 }
 
 export default function EditEmployeePage({ params }: { params: { id: string } }) {
@@ -37,28 +43,32 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
     try {
       setIsLoading(true);
       
-      // Fetch employee data
-      const employeeResponse = await fetch(`/api/employees/${id}`);
-      if (!employeeResponse.ok) {
-        throw new Error('Failed to fetch employee data');
-      }
-      const employeeData = await employeeResponse.json();
+      // Fetch employee data directly from Supabase
+      const { data: employee, error: employeeError } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      if (employeeError) throw new Error('Failed to fetch employee data');
       
       // Format date for input field
-      const hireDate = new Date(employeeData.hireDate);
+      const hireDate = new Date(employee.hire_date);
       const formattedDate = hireDate.toISOString().split('T')[0];
       
       setFormData({
-        ...employeeData,
-        hireDate: formattedDate
+        ...employee,
+        hire_date: formattedDate
       });
       
-      // Fetch companies
-      const companiesResponse = await fetch('/api/companies');
-      if (companiesResponse.ok) {
-        const data = await companiesResponse.json();
-        setCompanies(data.companies || data);
-      }
+      // Fetch companies directly from Supabase
+      const { data: companiesData, error: companiesError } = await supabase
+        .from('companies')
+        .select('*')
+        .order('name');
+      
+      if (companiesError) throw new Error('Failed to fetch companies');
+      setCompanies(companiesData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
       setError('Failed to load employee data. Please try again.');
@@ -71,38 +81,40 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
     fetchEmployeeData();
   }, [id]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => prev ? { ...prev, [name]: value } : null);
+    setFormData(prev => ({
+      ...prev,
+      [name]: value === '' ? null : value
+    }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData) return;
-    
     setIsSubmitting(true);
-    setError(null);
-
+    
     try {
-      const response = await fetch(`/api/employees/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
-
-      if (response.ok) {
-        // Refetch employee data after successful update
-        await fetchEmployeeData(); // Call this function to refresh the employee details
-        router.push(`/employees/${id}`);
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to update employee. Please try again.');
-      }
+      // Update employee directly with Supabase
+      const { error } = await supabase
+        .from('employees')
+        .update({
+          name: formData.name,
+          email: formData.email,
+          position: formData.position,
+          department: formData.department,
+          status: formData.status,
+          company_id: formData.company_id === '' ? null : formData.company_id,
+          hire_date: formData.hire_date
+        })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      router.push(`/employees/${id}`);
+      router.refresh();
     } catch (error) {
       console.error('Error updating employee:', error);
-      setError('An unexpected error occurred. Please try again.');
+      setError('Failed to update employee. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -118,27 +130,24 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
 
   const handleConfirmDelete = async () => {
     setIsDeleting(true);
-    setError(null);
-
+    
     try {
-      const response = await fetch(`/api/employees/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        router.push('/employees');
-        router.refresh();
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to delete employee. Please try again.');
-        setIsDeleting(false);
-        setShowDeleteConfirmation(false);
-      }
+      // Delete employee directly with Supabase
+      const { error } = await supabase
+        .from('employees')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      router.push('/employees');
+      router.refresh();
     } catch (error) {
       console.error('Error deleting employee:', error);
-      setError('An unexpected error occurred. Please try again.');
-      setIsDeleting(false);
+      setError('Failed to delete employee. Please try again.');
       setShowDeleteConfirmation(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -146,21 +155,44 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
     return <div className="p-8 text-center">Loading...</div>;
   }
 
-  if (!formData) {
-    return <div className="p-8 text-center">Employee not found</div>;
+  if (error || !formData) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto">
+        <div className="mb-6">
+          <Link href="/employees" className="text-blue-500 hover:underline">
+            ← Back to Employees
+          </Link>
+        </div>
+        
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-6 mb-6">
+          <h3 className="font-bold mb-2">Error</h3>
+          <p>{error || 'Employee not found'}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="p-8 max-w-2xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Edit Employee</h1>
+    <div className="p-8 max-w-4xl mx-auto">
+      <div className="mb-6">
+        <Link href={`/employees/${id}`} className="text-blue-500 hover:underline">
+          ← Back to Employee
+        </Link>
+      </div>
       
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded">
-          <p>{error}</p>
+      <div className="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+        <div className="p-6 border-b">
+          <h1 className="text-2xl font-bold">Edit Employee</h1>
         </div>
-      )}
+      </div>
       
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-md overflow-hidden p-6 space-y-4">
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4 mb-4">
+            {error}
+          </div>
+        )}
+        
         <div>
           <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
             Name
@@ -169,7 +201,7 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
             type="text"
             id="name"
             name="name"
-            value={formData.name}
+            value={formData.name || ''}
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
@@ -184,7 +216,7 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
             type="email"
             id="email"
             name="email"
-            value={formData.email}
+            value={formData.email || ''}
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
@@ -199,7 +231,7 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
             type="text"
             id="position"
             name="position"
-            value={formData.position}
+            value={formData.position || ''}
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
@@ -214,31 +246,11 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
             type="text"
             id="department"
             name="department"
-            value={formData.department}
+            value={formData.department || ''}
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        
-        <div>
-          <label htmlFor="companyId" className="block text-sm font-medium text-gray-700 mb-1">
-            Company
-          </label>
-          <select
-            id="companyId"
-            name="companyId"
-            value={formData.companyId || ''}
-            onChange={handleChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">Select a company</option>
-            {companies.map((company) => (
-              <option key={company.id} value={company.id}>
-                {company.name}
-              </option>
-            ))}
-          </select>
         </div>
         
         <div>
@@ -248,8 +260,9 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
           <select
             id="status"
             name="status"
-            value={formData.status}
+            value={formData.status || ''}
             onChange={handleChange}
+            required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="Active">Active</option>
@@ -259,14 +272,34 @@ export default function EditEmployeePage({ params }: { params: { id: string } })
         </div>
         
         <div>
-          <label htmlFor="hireDate" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="company_id" className="block text-sm font-medium text-gray-700 mb-1">
+            Company
+          </label>
+          <select
+            id="company_id"
+            name="company_id"
+            value={formData.company_id || ''}
+            onChange={handleChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Not Assigned</option>
+            {companies.map(company => (
+              <option key={company.id} value={company.id}>
+                {company.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div>
+          <label htmlFor="hire_date" className="block text-sm font-medium text-gray-700 mb-1">
             Hire Date
           </label>
           <input
             type="date"
-            id="hireDate"
-            name="hireDate"
-            value={formData.hireDate}
+            id="hire_date"
+            name="hire_date"
+            value={formData.hire_date || ''}
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
