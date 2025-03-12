@@ -77,10 +77,6 @@ const EmployeeDetail = ({ companyId, employeeId }) => {
               <h2 className="text-lg font-semibold mb-4">Employee Information</h2>
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm text-gray-500">Position</p>
-                  <p className="font-medium">{employee.position}</p>
-                </div>
-                <div>
                   <p className="text-sm text-gray-500">Department</p>
                   <p className="font-medium">{employee.department}</p>
                 </div>
