@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice>
+  <InvoiceNumber>INV-001</InvoiceNumber>
+  <Date>2023-06-15</Date>
+  <DueDate>2023-07-15</DueDate>
+  <Reference>Sample Invoice</Reference>
+  <Contact>
+    <Name>Acme Corporation</Name>
+    <EmailAddress>accounts@acmecorp.com</EmailAddress>
+    <PhoneNumber>555-123-4567</PhoneNumber>
+  </Contact>
+  <LineItems>
+    <LineItem>
+      <Description>Web Development Services</Description>
+      <Quantity>10</Quantity>
+      <UnitAmount>150.00</UnitAmount>
+      <AccountCode>200</AccountCode>
+    </LineItem>
+    <LineItem>
+      <Description>Hosting Services</Description>
+      <Quantity>1</Quantity>
+      <UnitAmount>50.00</UnitAmount>
+      <AccountCode>200</AccountCode>
+    </LineItem>
+  </LineItems>
+  <SubTotal>1550.00</SubTotal>
+  <TaxTotal>155.00</TaxTotal>
+  <Total>1705.00</Total>
+  <Currency>USD</Currency>
+</Invoice> 

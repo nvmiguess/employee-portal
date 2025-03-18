@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice>
+  <Contact>
+    <Name>Acme Corporation</Name>
+    <EmailAddress>accounts@acmecorp.com</EmailAddress>
+    <PhoneNumber>555-123-4567</PhoneNumber>
+  </Contact>
+  <Date>2023-03-16</Date>
+  <DueDate>2023-04-15</DueDate>
+  <LineItems>
+    <LineItem>
+      <Description>Web Development Services</Description>
+      <Quantity>10</Quantity>
+      <UnitAmount>150.00</UnitAmount>
+      <AccountCode>200</AccountCode>
+    </LineItem>
+    <LineItem>
+      <Description>Website Hosting (Monthly)</Description>
+      <Quantity>1</Quantity>
+      <UnitAmount>50.00</UnitAmount>
+      <AccountCode>200</AccountCode>
+    </LineItem>
+    <LineItem>
+      <Description>SEO Optimization</Description>
+      <Quantity>5</Quantity>
+      <UnitAmount>120.00</UnitAmount>
+      <AccountCode>200</AccountCode>
+    </LineItem>
+  </LineItems>
+</Invoice> 
