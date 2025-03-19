@@ -2,10 +2,14 @@ import './globals.css';
 import type { Metadata } from 'next';
 import RealtimeProvider from '../components/RealtimeProvider';
 import DarkModeToggle from '../components/DarkModeToggle';
+import { Inter } from 'next/font/google';
+import { AuthProvider } from '../contexts/AuthContext';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Employee Portal',
-  description: 'Manage your company employees',
+  description: 'Employee Portal Application',
 };
 
 export default function RootLayout({
@@ -34,11 +38,13 @@ export default function RootLayout({
           `,
         }} />
       </head>
-      <body className="h-full dark:bg-gray-900">
-        <RealtimeProvider>
-          <DarkModeToggle />
-          {children}
-        </RealtimeProvider>
+      <body className={inter.className}>
+        <AuthProvider>
+          <RealtimeProvider>
+            <DarkModeToggle />
+            {children}
+          </RealtimeProvider>
+        </AuthProvider>
       </body>
     </html>
   )

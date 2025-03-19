@@ -1,11 +1,22 @@
+'use client';
+
 import { createClient } from '@supabase/supabase-js';
 
-// Add logging to see what credentials are being used
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+let supabase: any;
 
-console.log('Initializing Supabase client with URL:', supabaseUrl);
-// Don't log the full key for security reasons
-console.log('Supabase key available:', supabaseKey ? 'Yes' : 'No');
+try {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseKey); 
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing Supabase credentials');
+  }
+
+  console.log('Initializing Supabase client with URL:', supabaseUrl);
+  supabase = createClient(supabaseUrl, supabaseKey);
+} catch (error) {
+  console.error('Error initializing Supabase client:', error);
+  throw error;
+}
+
+export { supabase }; 

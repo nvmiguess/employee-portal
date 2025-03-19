@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseStringPromise } from 'xml2js';
+import { parse } from 'csv-parse/sync';
+import { parse as parseDate, format } from 'date-fns';
+import fetch from 'node-fetch';
+
+// Specify Node.js runtime
+export const runtime = 'nodejs';
 
 // Xero API configuration - using existing environment variables
 const XERO_CLIENT_ID = process.env.NEXT_PUBLIC_XERO_CLIENT_ID;
@@ -13,66 +18,127 @@ const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
 const XERO_INVOICES_URL = 'https://api.xero.com/api.xro/2.0/Invoices';
 
-// Helper function to parse XML to invoice data
-async function parseXmlToInvoiceData(xmlContent: string) {
+// Type definitions for Xero invoice
+interface XeroLineItem {
+  Description: string;
+  Quantity: number;
+  UnitAmount: number;
+  TaxType: string;
+  AccountCode: string;
+}
+
+interface XeroInvoice {
+  Type: string;
+  Contact: {
+    Name: string;
+  };
+  Date: string;
+  DueDate: string;
+  LineItems: XeroLineItem[];
+  Reference: string;
+  Status: string;
+  LineAmountTypes: string;
+  InvoiceNumber?: string;
+}
+
+// Helper function to convert date from dd/MM/yyyy to yyyy-MM-dd
+function convertDateFormat(dateStr: string): string {
   try {
-    console.log('Parsing XML content...');
-    const result = await parseStringPromise(xmlContent, { explicitArray: false });
-    console.log('Raw XML parsing result:', JSON.stringify(result, null, 2));
+    // Parse the date assuming it's in dd/MM/yyyy format
+    const date = parseDate(dateStr, 'dd/MM/yyyy', new Date());
+    // Format the date in yyyy-MM-dd format
+    return format(date, 'yyyy-MM-dd');
+  } catch (error) {
+    console.error('Error converting date format:', error);
+    throw new Error(`Invalid date format: ${dateStr}. Expected format: dd/MM/yyyy`);
+  }
+}
+
+// Helper function to map tax types
+function mapTaxType(taxType: string): string {
+  switch (taxType) {
+    case 'GST On Income':
+      return 'OUTPUT';
+    case 'GST Free Income':
+      return 'EXEMPTOUTPUT';
+    default:
+      return taxType || 'OUTPUT';
+  }
+}
+
+// Helper function to parse CSV to invoice data
+async function parseCsvToInvoiceData(csvContent: string) {
+  try {
+    console.log('Parsing CSV content...');
     
-    // Extract invoice data from the parsed XML
-    const invoice = result.Invoice;
-    if (!invoice) {
-      throw new Error('Invalid XML format: No Invoice element found');
-    }
-    
-    // Extract contact information
-    const contactName = invoice.Contact?.Name || invoice.Contact?.n || '';
-    if (!contactName) {
-      console.warn('Warning: No contact name found in XML');
-    }
-    
-    console.log('Extracted contact name:', contactName);
-    
-    // Extract line items
-    const lineItems = Array.isArray(invoice.LineItems?.LineItem) 
-      ? invoice.LineItems.LineItem 
-      : (invoice.LineItems?.LineItem ? [invoice.LineItems.LineItem] : []);
-    
-    console.log(`Found ${lineItems.length} line items in XML`);
-    
-    // Map line items to Xero format
-    const mappedLineItems = lineItems.map((item: any, index: number) => {
-      console.log(`Processing line item ${index + 1}:`, JSON.stringify(item, null, 2));
-      
-      return {
-        Description: item.Description || `Item ${index + 1}`,
-        Quantity: parseFloat(item.Quantity) || 1,
-        UnitAmount: parseFloat(item.UnitAmount) || 0,
-        AccountCode: item.AccountCode || "200",
-        TaxType: item.TaxType || "NONE"
-      };
+    // Parse CSV content
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true
     });
     
-    return {
-      type: invoice.Type || 'ACCREC',
-      contact: {
-        name: contactName
-      },
-      date: invoice.Date || new Date().toISOString().split('T')[0],
-      dueDate: invoice.DueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      lineItems: mappedLineItems,
-      reference: invoice.Reference || `INV-${Date.now()}`,
-      status: invoice.Status || 'DRAFT'
-    };
+    if (!records || records.length === 0) {
+      throw new Error('No valid records found in CSV');
+    }
+    
+    console.log('Parsed CSV records:', records);
+    
+    // Group line items by invoice
+    const invoiceGroups = new Map();
+    
+    records.forEach((record: any) => {
+      // Skip records with empty contact name
+      if (!record.ContactName) {
+        console.log('Skipping record with empty contact name:', record);
+        return;
+      }
+
+      const key = `${record.ContactName}-${record.InvoiceNumber}`;
+      if (!invoiceGroups.has(key)) {
+        // Convert dates to yyyy-MM-dd format
+        const invoiceDate = convertDateFormat(record.InvoiceDate);
+        const dueDate = convertDateFormat(record.DueDate);
+        
+        invoiceGroups.set(key, {
+          contact: { name: record.ContactName },
+          invoiceNumber: record.InvoiceNumber,
+          reference: record.Reference,
+          date: invoiceDate,
+          dueDate: dueDate,
+          lineItems: []
+        });
+      }
+      
+      invoiceGroups.get(key).lineItems.push({
+        Description: record.Description,
+        Quantity: parseFloat(record.Quantity) || 1,
+        UnitAmount: parseFloat(record.UnitAmount) || 0,
+        TaxType: mapTaxType(record.TaxType),
+        AccountCode: record.AccountCode
+      });
+    });
+    
+    // Convert all invoice groups to Xero format
+    const invoices = Array.from(invoiceGroups.values()).map(invoice => ({
+      type: 'ACCREC',
+      contact: invoice.contact,
+      date: invoice.date,
+      dueDate: invoice.dueDate,
+      lineItems: invoice.lineItems,
+      reference: invoice.reference,
+      invoiceNumber: invoice.invoiceNumber,
+      status: 'DRAFT'
+    }));
+
+    return invoices;
   } catch (error) {
-    console.error('Error parsing XML:', error);
-    throw new Error(`Failed to parse XML: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error('Error parsing CSV:', error);
+    throw new Error(`Failed to parse CSV: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 // Helper function to get Xero authorization URL
-function getAuthorizationUrl() {
+function getAuthorizationUrl(redirectUri: string) {
   if (!XERO_CLIENT_ID) {
     throw new Error('NEXT_PUBLIC_XERO_CLIENT_ID environment variable is not set');
   }
@@ -80,7 +146,7 @@ function getAuthorizationUrl() {
   const scopes = encodeURIComponent('openid profile email accounting.transactions accounting.contacts offline_access');
   const state = encodeURIComponent(Math.random().toString(36).substring(2, 15));
   
-  return `${XERO_AUTH_URL}?response_type=code&client_id=${XERO_CLIENT_ID}&redirect_uri=${encodeURIComponent(XERO_REDIRECT_URI)}&scope=${scopes}&state=${state}`;
+  return `${XERO_AUTH_URL}?response_type=code&client_id=${XERO_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&state=${state}`;
 }
 
 // Helper function to exchange authorization code for tokens
@@ -158,9 +224,9 @@ async function refreshAccessToken(refreshToken: string) {
   };
 }
 
-// Helper function to create an invoice in Xero
-async function createInvoice(accessToken: string, invoiceData: any) {
-  console.log('Creating invoice in Xero with data:', JSON.stringify(invoiceData, null, 2));
+// Helper function to create invoices in Xero
+async function createInvoices(accessToken: string, invoicesData: any[]) {
+  console.log('Creating invoices in Xero with data:', JSON.stringify(invoicesData, null, 2));
   
   // Get the tenant ID from the connections API
   console.log('Fetching Xero tenants...');
@@ -197,79 +263,90 @@ async function createInvoice(accessToken: string, invoiceData: any) {
     throw error;
   }
   
-  // Prepare the Xero invoice object
-  const xeroInvoice = {
-    Type: invoiceData.type.toUpperCase(),
-    Contact: {
-      Name: invoiceData.contact.name
-    },
-    Date: invoiceData.date,
-    DueDate: invoiceData.dueDate,
-    LineItems: invoiceData.lineItems,
-    Reference: invoiceData.reference,
-    Status: invoiceData.status,
-    LineAmountTypes: "Exclusive"
-  };
-  
-  // Create the request body
-  const requestBody = {
-    Invoices: [xeroInvoice]
-  };
-  
-  console.log('Sending request to Xero API with body:', JSON.stringify(requestBody, null, 2));
-  
-  try {
-    const response = await fetch(XERO_INVOICES_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'Xero-Tenant-Id': tenantId,
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    });
-    
-    // Check if response is OK before trying to parse JSON
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      let errorMessage = `Error from Xero API: ${response.status} ${response.statusText}`;
+  // Process each invoice
+  const results = [];
+  for (const invoiceData of invoicesData) {
+    try {
+      // Prepare the Xero invoice object
+      const xeroInvoice: XeroInvoice = {
+        Type: invoiceData.type.toUpperCase(),
+        Contact: {
+          Name: invoiceData.contact.name
+        },
+        Date: invoiceData.date,
+        DueDate: invoiceData.dueDate,
+        LineItems: invoiceData.lineItems,
+        Reference: invoiceData.reference,
+        Status: invoiceData.status,
+        LineAmountTypes: "Exclusive"
+      };
       
-      try {
-        // Try to get more detailed error information
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await response.json();
-          console.error('Xero API error response:', errorData);
-          
-          if (errorData.Elements && errorData.Elements[0] && errorData.Elements[0].ValidationErrors) {
-            const validationErrors = errorData.Elements[0].ValidationErrors;
-            errorMessage = validationErrors.map((err: any) => err.Message).join(', ');
-          } else if (errorData.Detail) {
-            errorMessage = errorData.Detail;
-          } else if (errorData.Message) {
-            errorMessage = errorData.Message;
-          }
-        } else {
-          // If not JSON, get the text response
-          const textResponse = await response.text();
-          console.error('Non-JSON error response:', textResponse);
-          errorMessage += ` - ${textResponse.substring(0, 200)}...`;
-        }
-      } catch (parseError) {
-        console.error('Error parsing error response:', parseError);
+      // Add invoice number if provided
+      if (invoiceData.invoiceNumber) {
+        xeroInvoice.InvoiceNumber = invoiceData.invoiceNumber;
       }
       
-      throw new Error(errorMessage);
+      // Create the request body
+      const requestBody = {
+        Invoices: [xeroInvoice]
+      };
+      
+      console.log('Sending request to Xero API with body:', JSON.stringify(requestBody, null, 2));
+      
+      const response = await fetch(XERO_INVOICES_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Xero-Tenant-Id': tenantId,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      // Check if response is OK before trying to parse JSON
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        let errorMessage = `Error from Xero API: ${response.status} ${response.statusText}`;
+        
+        try {
+          // Try to get more detailed error information
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            console.error('Xero API error response:', errorData);
+            
+            if (errorData.Elements && errorData.Elements[0] && errorData.Elements[0].ValidationErrors) {
+              const validationErrors = errorData.Elements[0].ValidationErrors;
+              errorMessage = validationErrors.map((err: any) => err.Message).join(', ');
+            } else if (errorData.Detail) {
+              errorMessage = errorData.Detail;
+            } else if (errorData.Message) {
+              errorMessage = errorData.Message;
+            }
+          } else {
+            // If not JSON, get the text response
+            const textResponse = await response.text();
+            console.error('Non-JSON error response:', textResponse);
+            errorMessage += ` - ${textResponse.substring(0, 200)}...`;
+          }
+        } catch (parseError) {
+          console.error('Error parsing error response:', parseError);
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      // Now we know the response is OK and should be JSON
+      const data = await response.json();
+      console.log('Invoice created successfully:', data);
+      results.push(data);
+    } catch (error) {
+      console.error(`Error creating invoice ${invoiceData.invoiceNumber}:`, error);
+      results.push({ error: error instanceof Error ? error.message : 'Unknown error', invoiceNumber: invoiceData.invoiceNumber });
     }
-    
-    // Now we know the response is OK and should be JSON
-    const data = await response.json();
-    console.log('Invoice created successfully:', data);
-    return data;
-  } catch (error) {
-    console.error('Error creating invoice:', error);
-    throw error;
   }
+  
+  return results;
 }
 
 // Main API route handler
@@ -283,15 +360,14 @@ export async function POST(request: NextRequest) {
     // Handle different actions
     switch (action) {
       case 'getAuthUrl':
-        // Get Xero authorization URL
         try {
-          const authUrl = getAuthorizationUrl();
-          console.log('Generated auth URL:', authUrl);
-          return NextResponse.json({ url: authUrl });
+          const { redirectUri } = body;
+          const url = await getAuthorizationUrl(redirectUri);
+          return NextResponse.json({ url });
         } catch (error) {
-          console.error('Error generating auth URL:', error);
+          console.error('Error getting auth URL:', error);
           return NextResponse.json(
-            { error: error instanceof Error ? error.message : 'Failed to generate authorization URL' },
+            { error: error instanceof Error ? error.message : 'Failed to get auth URL' },
             { status: 500 }
           );
         }
@@ -335,27 +411,27 @@ export async function POST(request: NextRequest) {
       case 'createInvoice':
         // Create invoice in Xero
         try {
-          const { accessToken, xmlContent } = body;
+          const { accessToken, csvContent } = body;
           
           if (!accessToken) {
             return NextResponse.json({ error: 'Access token is required' }, { status: 400 });
           }
           
-          if (!xmlContent) {
-            return NextResponse.json({ error: 'XML content is required' }, { status: 400 });
+          if (!csvContent) {
+            return NextResponse.json({ error: 'CSV content is required' }, { status: 400 });
           }
           
-          // Parse XML to invoice data
-          const invoiceData = await parseXmlToInvoiceData(xmlContent);
+          // Parse CSV to invoice data
+          const invoicesData = await parseCsvToInvoiceData(csvContent);
           
-          // Create invoice in Xero
-          const result = await createInvoice(accessToken, invoiceData);
+          // Create invoices in Xero
+          const results = await createInvoices(accessToken, invoicesData);
           
-          return NextResponse.json({ success: true, invoice: result });
+          return NextResponse.json({ success: true, invoices: results });
         } catch (error) {
-          console.error('Error creating invoice:', error);
+          console.error('Error creating invoices:', error);
           return NextResponse.json(
-            { error: error instanceof Error ? error.message : 'Failed to create invoice in Xero' },
+            { error: error instanceof Error ? error.message : 'Failed to create invoices in Xero' },
             { status: 500 }
           );
         }

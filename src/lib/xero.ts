@@ -2,29 +2,33 @@ import { XeroClient } from 'xero-node';
 import * as xml2js from 'xml2js';
 
 // Initialize Xero client with proper types
-const xero = new XeroClient({
-  clientId: process.env.NEXT_PUBLIC_XERO_CLIENT_ID || '',
-  clientSecret: process.env.XERO_CLIENT_SECRET || '',
-  redirectUris: [process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/callback'],
-  scopes: (process.env.NEXT_PUBLIC_XERO_SCOPES?.split(' ') || [
-    'openid', 
-    'profile', 
-    'email', 
-    'accounting.transactions', 
-    'accounting.settings', 
-    'offline_access'
-  ]),
-});
+function createXeroClient(redirectUri?: string) {
+  return new XeroClient({
+    clientId: process.env.NEXT_PUBLIC_XERO_CLIENT_ID || '',
+    clientSecret: process.env.XERO_CLIENT_SECRET || '',
+    redirectUris: [redirectUri || process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/callback'],
+    scopes: (process.env.NEXT_PUBLIC_XERO_SCOPES?.split(' ') || [
+      'openid', 
+      'profile', 
+      'email', 
+      'accounting.transactions', 
+      'accounting.settings', 
+      'offline_access'
+    ]),
+  });
+}
 
 /**
  * Get the authorization URL for Xero OAuth
  */
-export async function getAuthUrl(): Promise<string> {
+export async function getAuthUrl(redirectUri?: string): Promise<string> {
   try {
     console.log('Generating Xero auth URL...');
     // Generate a random state value for security
     const state = Math.random().toString(36).substring(7);
-    // Build consent URL without additional parameters
+    // Create a new client with the custom redirect URI
+    const xero = createXeroClient(redirectUri);
+    // Build consent URL
     const url = await xero.buildConsentUrl();
     console.log('Auth URL generated successfully');
     return url;
@@ -33,6 +37,9 @@ export async function getAuthUrl(): Promise<string> {
     throw new Error('Failed to generate authentication URL');
   }
 }
+
+// Create default client for other operations
+const xero = createXeroClient();
 
 /**
  * Parse XML invoice data to Xero invoice format
@@ -306,4 +313,7 @@ export const createInvoiceFromXml = async (xmlContent: string, accessToken: stri
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
-}; 
+};
+
+// Export other functions that use the default client
+export { xero }; 
