@@ -46,7 +46,7 @@ export default function XeroUploadPage() {
             },
             body: JSON.stringify({
               action: 'getAuthUrl',
-              redirectUri: window.location.origin + '/xero-upload'  // Specify the redirect URI
+              redirectUri: 'localhost:3000/xero-upload'  // Send without protocol
             }),
           });
           
@@ -56,6 +56,7 @@ export default function XeroUploadPage() {
             throw new Error(data.error || 'Failed to get authentication URL');
           }
           
+          console.log('Received auth URL:', data.url);
           setAuthUrl(data.url);
         } catch (error) {
           console.error('Error getting auth URL:', error);
@@ -72,14 +73,17 @@ export default function XeroUploadPage() {
   // Handle auth callback
   useEffect(() => {
     const handleAuthCallback = async () => {
-      // Check if we have a code in the URL
+      // Check if we have a code and state in the URL
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get('code');
+      const state = urlParams.get('state');
       
-      if (code) {
+      if (code && state) {
         try {
           setIsProcessing(true);
           setError(null);
+          
+          console.log('Handling auth callback with code and state:', { code, state });
           
           // Exchange code for tokens
           const response = await fetch('/api/xero/proxy', {
@@ -89,13 +93,15 @@ export default function XeroUploadPage() {
             },
             body: JSON.stringify({
               action: 'exchangeCode',
-              code
+              code,
+              state
             }),
           });
           
           const data = await response.json();
           
           if (!response.ok) {
+            console.error('Token exchange failed:', data);
             throw new Error(data.error || 'Failed to authenticate with Xero');
           }
           
@@ -107,11 +113,14 @@ export default function XeroUploadPage() {
           // Update authentication state
           setIsAuthenticated(true);
           
-          // Remove code from URL
+          // Remove code and state from URL
           window.history.replaceState({}, '', window.location.pathname);
         } catch (error) {
           console.error('Error handling auth callback:', error);
-          setError(error instanceof Error ? error.message : 'Failed to authenticate with Xero');
+          // Only show error if it's not a state parameter issue
+          if (!error.message.includes('state parameter')) {
+            setError(error instanceof Error ? error.message : 'Failed to authenticate with Xero');
+          }
         } finally {
           setIsProcessing(false);
         }

@@ -9,7 +9,7 @@ export const runtime = 'nodejs';
 // Xero API configuration - using existing environment variables
 const XERO_CLIENT_ID = process.env.NEXT_PUBLIC_XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
-const XERO_REDIRECT_URI = process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/callback';
+const XERO_REDIRECT_URI = process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/xero-upload';
 const XERO_TENANT_ID = process.env.XERO_TENANT_ID;
 
 // Xero API endpoints
@@ -17,6 +17,9 @@ const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
 const XERO_INVOICES_URL = 'https://api.xero.com/api.xro/2.0/Invoices';
+
+// Store state values temporarily (in production, use a proper session store)
+const stateStore = new Map<string, { redirectUri: string; timestamp: number }>();
 
 // Type definitions for Xero invoice
 interface XeroLineItem {
@@ -143,24 +146,71 @@ function getAuthorizationUrl(redirectUri: string) {
     throw new Error('NEXT_PUBLIC_XERO_CLIENT_ID environment variable is not set');
   }
   
-  const scopes = encodeURIComponent('openid profile email accounting.transactions accounting.contacts offline_access');
-  const state = encodeURIComponent(Math.random().toString(36).substring(2, 15));
+  const scopes = encodeURIComponent('openid profile email accounting.transactions accounting.settings offline_access');
+  const state = Math.random().toString(36).substring(2, 15);
   
-  return `${XERO_AUTH_URL}?response_type=code&client_id=${XERO_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&state=${state}`;
+  // Store the state and redirect URI
+  stateStore.set(state, { redirectUri, timestamp: Date.now() });
+  
+  // Clean up old states (older than 1 hour)
+  const oneHourAgo = Date.now() - 3600000;
+  Array.from(stateStore.entries()).forEach(([key, value]) => {
+    if (value.timestamp < oneHourAgo) {
+      stateStore.delete(key);
+    }
+  });
+  
+  // Ensure the redirect URI is properly formatted
+  const formattedRedirectUri = redirectUri.startsWith('http') ? redirectUri : `https://${redirectUri}`;
+  
+  // Build the authorization URL with properly encoded parameters
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: XERO_CLIENT_ID,
+    redirect_uri: formattedRedirectUri,
+    scope: 'openid profile email accounting.transactions accounting.settings offline_access',
+    state: state
+  });
+  
+  return `${XERO_AUTH_URL}?${params.toString()}`;
 }
 
 // Helper function to exchange authorization code for tokens
-async function exchangeCodeForTokens(code: string) {
+async function exchangeCodeForTokens(code: string, state: string) {
   console.log('Exchanging authorization code for tokens...');
   
   if (!XERO_CLIENT_ID || !XERO_CLIENT_SECRET) {
     throw new Error('Xero API credentials are not configured');
   }
   
+  // Get the stored state and redirect URI
+  const stateData = stateStore.get(state);
+  
+  // If state is not found, try to proceed with the default redirect URI
+  const redirectUri = stateData?.redirectUri || XERO_REDIRECT_URI;
+  
+  // Remove the used state if it exists
+  if (stateData) {
+    stateStore.delete(state);
+  }
+  
+  // Ensure the redirect URI is properly formatted
+  const formattedRedirectUri = redirectUri.startsWith('http') 
+    ? redirectUri 
+    : `https://${redirectUri}`;
+  
+  console.log('Using redirect URI:', formattedRedirectUri);
+  
   const params = new URLSearchParams();
   params.append('grant_type', 'authorization_code');
   params.append('code', code);
-  params.append('redirect_uri', XERO_REDIRECT_URI);
+  params.append('redirect_uri', formattedRedirectUri);
+  
+  console.log('Token exchange request params:', {
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: formattedRedirectUri
+  });
   
   const response = await fetch(XERO_TOKEN_URL, {
     method: 'POST',
@@ -174,8 +224,12 @@ async function exchangeCodeForTokens(code: string) {
   const data = await response.json();
   
   if (!response.ok) {
-    console.error('Error exchanging code for tokens:', data);
-    throw new Error(data.error_description || 'Failed to exchange authorization code');
+    console.error('Error exchanging code for tokens:', {
+      status: response.status,
+      statusText: response.statusText,
+      data: data
+    });
+    throw new Error(data.error_description || data.error || 'Failed to exchange authorization code');
   }
   
   console.log('Successfully exchanged code for tokens');
@@ -375,12 +429,12 @@ export async function POST(request: NextRequest) {
       case 'exchangeCode':
         // Exchange authorization code for tokens
         try {
-          const { code } = body;
-          if (!code) {
-            return NextResponse.json({ error: 'Authorization code is required' }, { status: 400 });
+          const { code, state } = body;
+          if (!code || !state) {
+            return NextResponse.json({ error: 'Authorization code and state are required' }, { status: 400 });
           }
           
-          const tokens = await exchangeCodeForTokens(code);
+          const tokens = await exchangeCodeForTokens(code, state);
           return NextResponse.json(tokens);
         } catch (error) {
           console.error('Error exchanging code:', error);
