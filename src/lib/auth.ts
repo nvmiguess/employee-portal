@@ -1,14 +1,15 @@
 // Whitelist configuration
 const ALLOWED_EMAIL_DOMAINS = [
   // Add your allowed domains here
-  'example.com',
-  'company.com'
+  'cstar.com',
+  'gfresh.com'
 ];
 
 const ALLOWED_EMAIL_ADDRESSES = [
   // Add specific email addresses here
-  'user1@gmail.com',
-  'user2@outlook.com'
+  'vivian@cstar.com',
+  'spyder@cstar.com',
+  'anthony@gfresh.com'
 ];
 
 export function isEmailAllowed(email: string): { allowed: boolean; reason?: string } {
