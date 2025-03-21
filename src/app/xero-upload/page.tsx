@@ -46,7 +46,7 @@ export default function XeroUploadPage() {
             },
             body: JSON.stringify({
               action: 'getAuthUrl',
-              redirectUri: 'localhost:3000/xero-upload'  // Send without protocol
+              redirectUri: 'https://localhost:3000/xero-upload/callback'
             }),
           });
           
@@ -56,7 +56,16 @@ export default function XeroUploadPage() {
             throw new Error(data.error || 'Failed to get authentication URL');
           }
           
-          console.log('Received auth URL:', data.url);
+          console.log('Received auth URL response:', {
+            url: data.url,
+            state: data.state
+          });
+
+          // Store the state in localStorage for validation
+          if (data.state) {
+            localStorage.setItem('xero_auth_state', data.state);
+          }
+          
           setAuthUrl(data.url);
         } catch (error) {
           console.error('Error getting auth URL:', error);
@@ -83,7 +92,21 @@ export default function XeroUploadPage() {
           setIsProcessing(true);
           setError(null);
           
-          console.log('Handling auth callback with code and state:', { code, state });
+          // Validate state parameter
+          const storedState = localStorage.getItem('xero_auth_state');
+          console.log('Validating state:', {
+            receivedState: state,
+            storedState: storedState
+          });
+
+          if (!storedState || storedState !== state) {
+            throw new Error('Invalid state parameter - possible security issue');
+          }
+          
+          console.log('Handling auth callback with code and state:', { 
+            code: code.substring(0, 5) + '...', 
+            state 
+          });
           
           // Exchange code for tokens
           const response = await fetch('/api/xero/proxy', {
@@ -105,6 +128,9 @@ export default function XeroUploadPage() {
             throw new Error(data.error || 'Failed to authenticate with Xero');
           }
           
+          // Clear the stored state
+          localStorage.removeItem('xero_auth_state');
+          
           // Store tokens
           localStorage.setItem('xero_access_token', data.accessToken);
           localStorage.setItem('xero_refresh_token', data.refreshToken);
@@ -117,10 +143,7 @@ export default function XeroUploadPage() {
           window.history.replaceState({}, '', window.location.pathname);
         } catch (error) {
           console.error('Error handling auth callback:', error);
-          // Only show error if it's not a state parameter issue
-          if (!error.message.includes('state parameter')) {
-            setError(error instanceof Error ? error.message : 'Failed to authenticate with Xero');
-          }
+          setError(error instanceof Error ? error.message : 'Failed to authenticate with Xero');
         } finally {
           setIsProcessing(false);
         }
@@ -422,7 +445,7 @@ export default function XeroUploadPage() {
                           className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="-ml-1 mr-2 h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 101.414 1.414l-3 3a1 1 0 00-1.414 0l-3-3a1 1 0 000-1.414z" clipRule="evenodd" />
                           </svg>
                           Download CSV
                         </button>

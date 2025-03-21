@@ -6,7 +6,7 @@ function createXeroClient(redirectUri?: string) {
   return new XeroClient({
     clientId: process.env.NEXT_PUBLIC_XERO_CLIENT_ID || '',
     clientSecret: process.env.XERO_CLIENT_SECRET || '',
-    redirectUris: [redirectUri || process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/callback'],
+    redirectUris: [redirectUri || process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'http://localhost:3000/xero-upload/callback'],
     scopes: (process.env.NEXT_PUBLIC_XERO_SCOPES?.split(' ') || [
       'openid', 
       'profile', 

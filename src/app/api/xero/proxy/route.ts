@@ -7,9 +7,9 @@ import fetch from 'node-fetch';
 export const runtime = 'nodejs';
 
 // Xero API configuration - using existing environment variables
-const XERO_CLIENT_ID = process.env.NEXT_PUBLIC_XERO_CLIENT_ID;
+const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
-const XERO_REDIRECT_URI = process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/xero-upload';
+const XERO_REDIRECT_URI = process.env.NEXT_PUBLIC_XERO_REDIRECT_URI || 'https://localhost:3000/xero-upload/callback';
 const XERO_TENANT_ID = process.env.XERO_TENANT_ID;
 
 // Xero API endpoints
@@ -17,9 +17,6 @@ const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
 const XERO_INVOICES_URL = 'https://api.xero.com/api.xro/2.0/Invoices';
-
-// Store state values temporarily (in production, use a proper session store)
-const stateStore = new Map<string, { redirectUri: string; timestamp: number }>();
 
 // Type definitions for Xero invoice
 interface XeroLineItem {
@@ -141,104 +138,154 @@ async function parseCsvToInvoiceData(csvContent: string) {
 }
 
 // Helper function to get Xero authorization URL
-function getAuthorizationUrl(redirectUri: string) {
+function getAuthorizationUrl(redirectUri?: string) {
   if (!XERO_CLIENT_ID) {
-    throw new Error('NEXT_PUBLIC_XERO_CLIENT_ID environment variable is not set');
+    throw new Error('XERO_CLIENT_ID environment variable is not set');
   }
   
-  const scopes = encodeURIComponent('openid profile email accounting.transactions accounting.settings offline_access');
+  // Define scopes explicitly
+  const scopes = [
+    'openid',
+    'profile',
+    'email',
+    'accounting.transactions',
+    'accounting.settings',
+    'offline_access'
+  ];
+  
   const state = Math.random().toString(36).substring(2, 15);
   
-  // Store the state and redirect URI
-  stateStore.set(state, { redirectUri, timestamp: Date.now() });
+  // Use the provided redirect URI or fall back to the default
+  const finalRedirectUri = redirectUri || XERO_REDIRECT_URI;
   
-  // Clean up old states (older than 1 hour)
-  const oneHourAgo = Date.now() - 3600000;
-  Array.from(stateStore.entries()).forEach(([key, value]) => {
-    if (value.timestamp < oneHourAgo) {
-      stateStore.delete(key);
-    }
+  console.log('Generating auth URL with params:', {
+    clientId: XERO_CLIENT_ID.substring(0, 5) + '...',
+    redirectUri: finalRedirectUri,
+    scopes: scopes,
+    state: state
   });
-  
-  // Ensure the redirect URI is properly formatted
-  const formattedRedirectUri = redirectUri.startsWith('http') ? redirectUri : `https://${redirectUri}`;
-  
+
   // Build the authorization URL with properly encoded parameters
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: XERO_CLIENT_ID,
-    redirect_uri: formattedRedirectUri,
-    scope: 'openid profile email accounting.transactions accounting.settings offline_access',
+    redirect_uri: finalRedirectUri,
+    scope: scopes.join(' '),
     state: state
   });
   
-  return `${XERO_AUTH_URL}?${params.toString()}`;
+  const authUrl = `${XERO_AUTH_URL}?${params.toString()}`;
+  console.log('Generated auth URL:', authUrl);
+  
+  return { url: authUrl, state };
+}
+
+// Helper function to test credential encoding
+function testCredentialEncoding(clientId: string, clientSecret: string): string {
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`, 'utf8').toString('base64');
+  console.log('Credential test:', {
+    input: {
+      clientId: clientId.substring(0, 5) + '...',
+      clientSecret: clientSecret.substring(0, 5) + '...',
+      raw: `${clientId.substring(0, 5)}...:${clientSecret.substring(0, 5)}...`
+    },
+    output: credentials.substring(0, 10) + '...'
+  });
+  return credentials;
 }
 
 // Helper function to exchange authorization code for tokens
-async function exchangeCodeForTokens(code: string, state: string) {
-  console.log('Exchanging authorization code for tokens...');
+async function exchangeCodeForTokens(code: string, state: string, redirectUri: string) {
+  console.log('Exchanging authorization code for tokens...', {
+    code: code.substring(0, 5) + '...',
+    state,
+    redirectUri
+  });
   
   if (!XERO_CLIENT_ID || !XERO_CLIENT_SECRET) {
     throw new Error('Xero API credentials are not configured');
   }
   
-  // Get the stored state and redirect URI
-  const stateData = stateStore.get(state);
-  
-  // If state is not found, try to proceed with the default redirect URI
-  const redirectUri = stateData?.redirectUri || XERO_REDIRECT_URI;
-  
-  // Remove the used state if it exists
-  if (stateData) {
-    stateStore.delete(state);
-  }
-  
-  // Ensure the redirect URI is properly formatted
-  const formattedRedirectUri = redirectUri.startsWith('http') 
-    ? redirectUri 
-    : `https://${redirectUri}`;
-  
-  console.log('Using redirect URI:', formattedRedirectUri);
-  
-  const params = new URLSearchParams();
-  params.append('grant_type', 'authorization_code');
-  params.append('code', code);
-  params.append('redirect_uri', formattedRedirectUri);
-  
-  console.log('Token exchange request params:', {
-    grant_type: 'authorization_code',
-    code: code,
-    redirect_uri: formattedRedirectUri
-  });
-  
-  const response = await fetch(XERO_TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString('base64')}`
-    },
-    body: params.toString()
-  });
-  
-  const data = await response.json();
-  
-  if (!response.ok) {
-    console.error('Error exchanging code for tokens:', {
-      status: response.status,
-      statusText: response.statusText,
-      data: data
+  try {
+    console.log('Sending token exchange request to:', XERO_TOKEN_URL);
+    
+    // Ensure redirect URI uses HTTPS
+    const secureRedirectUri = redirectUri.replace('http://', 'https://');
+    
+    // Create Basic Auth header with proper encoding
+    const credentials = Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString('base64');
+    
+    const formData = new URLSearchParams();
+    formData.append('grant_type', 'authorization_code');
+    formData.append('code', code);
+    formData.append('redirect_uri', secureRedirectUri);
+    
+    // Log the exact request being sent (with sensitive data masked)
+    console.log('Request details:', {
+      url: XERO_TOKEN_URL,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${credentials.substring(0, 10)}...`
+      },
+      formData: {
+        grant_type: 'authorization_code',
+        code: code.substring(0, 5) + '...',
+        redirect_uri: secureRedirectUri
+      },
+      clientIdLength: XERO_CLIENT_ID.length,
+      clientSecretLength: XERO_CLIENT_SECRET.length,
+      credentialsLength: credentials.length
     });
-    throw new Error(data.error_description || data.error || 'Failed to exchange authorization code');
+    
+    const response = await fetch(XERO_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formData.toString()
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      console.error('Token exchange error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: data.error,
+        error_description: data.error_description,
+        requestParams: {
+          redirect_uri: secureRedirectUri,
+          grant_type: 'authorization_code'
+        },
+        responseHeaders: Object.fromEntries(response.headers.entries()),
+        responseBody: data
+      });
+      
+      let errorMessage = 'Failed to exchange authorization code';
+      if (data.error === 'invalid_client') {
+        errorMessage = 'Invalid client credentials. Please check your Xero app settings.';
+      } else if (data.error === 'invalid_grant') {
+        errorMessage = 'Invalid or expired authorization code.';
+      } else if (data.error_description) {
+        errorMessage = data.error_description;
+      }
+      
+      throw new Error(errorMessage);
+    }
+    
+    const data = await response.json();
+    console.log('Successfully exchanged code for tokens');
+    
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + data.expires_in * 1000
+    };
+  } catch (error) {
+    console.error('Token exchange error:', error);
+    throw error;
   }
-  
-  console.log('Successfully exchanged code for tokens');
-  
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + data.expires_in * 1000
-  };
 }
 
 // Helper function to refresh access token
@@ -403,6 +450,33 @@ async function createInvoices(accessToken: string, invoicesData: any[]) {
   return results;
 }
 
+// Helper function to get connected tenants
+async function getConnectedTenants(accessToken: string) {
+  console.log('Fetching connected tenants...');
+  
+  const response = await fetch(XERO_CONNECTIONS_URL, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('Error fetching tenants:', error);
+    throw new Error(`Failed to fetch tenants: ${error}`);
+  }
+
+  const tenants = await response.json();
+  console.log('Found tenants:', tenants);
+
+  return tenants.map((tenant: any) => ({
+    tenantId: tenant.tenantId,
+    tenantName: tenant.tenantName
+  }));
+}
+
 // Main API route handler
 export async function POST(request: NextRequest) {
   try {
@@ -416,8 +490,8 @@ export async function POST(request: NextRequest) {
       case 'getAuthUrl':
         try {
           const { redirectUri } = body;
-          const url = await getAuthorizationUrl(redirectUri);
-          return NextResponse.json({ url });
+          const { url, state } = await getAuthorizationUrl(redirectUri);
+          return NextResponse.json({ url, state });
         } catch (error) {
           console.error('Error getting auth URL:', error);
           return NextResponse.json(
@@ -429,12 +503,12 @@ export async function POST(request: NextRequest) {
       case 'exchangeCode':
         // Exchange authorization code for tokens
         try {
-          const { code, state } = body;
-          if (!code || !state) {
-            return NextResponse.json({ error: 'Authorization code and state are required' }, { status: 400 });
+          const { code, state, redirectUri } = body;
+          if (!code || !state || !redirectUri) {
+            return NextResponse.json({ error: 'Authorization code, state, and redirect URI are required' }, { status: 400 });
           }
           
-          const tokens = await exchangeCodeForTokens(code, state);
+          const tokens = await exchangeCodeForTokens(code, state, redirectUri);
           return NextResponse.json(tokens);
         } catch (error) {
           console.error('Error exchanging code:', error);
@@ -489,6 +563,15 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
+        
+      case 'getTenants':
+        const authHeader = request.headers.get('authorization');
+        if (!authHeader) {
+          return NextResponse.json({ error: 'No authorization header' }, { status: 401 });
+        }
+        const accessToken = authHeader.replace('Bearer ', '');
+        const tenants = await getConnectedTenants(accessToken);
+        return NextResponse.json({ tenants });
         
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

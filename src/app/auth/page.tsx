@@ -23,6 +23,7 @@ export default function AuthPage() {
           },
           body: JSON.stringify({
             action: 'getAuthUrl',
+            redirectUri: 'https://localhost:3000/xero-upload/callback'
           }),
         });
         

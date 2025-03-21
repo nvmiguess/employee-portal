@@ -1,8 +1,8 @@
-const { createServer } = require('https');
-const { parse } = require('url');
-const next = require('next');
 const fs = require('fs');
+const https = require('https');
+const next = require('next');
 const path = require('path');
+require('dotenv').config({ path: path.resolve(process.cwd(), '.env.local') });
 
 // Enable more detailed logging
 process.on('uncaughtException', (err) => {
@@ -19,64 +19,45 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-// Path to SSL certificates
-const certsDir = path.join(__dirname, 'certs');
+const PORT = process.env.PORT || 3000;
 
-// Check if certificates exist
-try {
-  const keyPath = path.join(certsDir, 'cert.key');
-  const certPath = path.join(certsDir, 'cert.crt');
-  
-  if (!fs.existsSync(keyPath)) {
-    console.error(`SSL key file not found: ${keyPath}`);
-    process.exit(1);
-  }
-  
-  if (!fs.existsSync(certPath)) {
-    console.error(`SSL certificate file not found: ${certPath}`);
-    process.exit(1);
-  }
-  
-  console.log('SSL certificates found:', { keyPath, certPath });
-} catch (error) {
-  console.error('Error checking SSL certificates:', error);
-  process.exit(1);
-}
+// Log environment variables for debugging
+console.log('Environment variables:', {
+  XERO_CLIENT_ID: process.env.XERO_CLIENT_ID ? 'set' : 'not set',
+  XERO_CLIENT_SECRET: process.env.XERO_CLIENT_SECRET ? 'set' : 'not set',
+  NEXT_PUBLIC_XERO_REDIRECT_URI: process.env.NEXT_PUBLIC_XERO_REDIRECT_URI
+});
 
-const httpsOptions = {
-  key: fs.readFileSync(path.join(certsDir, 'cert.key')),
-  cert: fs.readFileSync(path.join(certsDir, 'cert.crt')),
+// Check for SSL certificates
+const sslConfig = {
+  keyPath: path.join(process.cwd(), 'certs', 'cert.key'),
+  certPath: path.join(process.cwd(), 'certs', 'cert.crt')
 };
 
-const PORT = process.env.PORT || 3000;
+console.log('SSL certificates found:', sslConfig);
 
 app.prepare()
   .then(() => {
+    const httpsOptions = {
+      key: fs.readFileSync(sslConfig.keyPath),
+      cert: fs.readFileSync(sslConfig.certPath)
+    };
+
     console.log('Next.js app prepared, creating HTTPS server...');
-    
-    const server = createServer(httpsOptions, (req, res) => {
+
+    https.createServer(httpsOptions, (req, res) => {
       try {
         // Log incoming requests
         console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
         
-        const parsedUrl = parse(req.url, true);
-        handle(req, res, parsedUrl);
+        handle(req, res);
       } catch (err) {
         console.error('Error handling request:', err);
         res.statusCode = 500;
         res.end('Internal Server Error');
       }
-    });
-    
-    server.on('error', (err) => {
-      console.error('Server error:', err);
-    });
-    
-    server.listen(PORT, (err) => {
-      if (err) {
-        console.error('Error starting server:', err);
-        throw err;
-      }
+    }).listen(PORT, (err) => {
+      if (err) throw err;
       console.log(`> Ready on https://localhost:${PORT}`);
     });
   })

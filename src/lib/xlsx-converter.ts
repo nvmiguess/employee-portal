@@ -43,6 +43,12 @@ export interface CsvRow {
   BrandingTheme: string;
 }
 
+// Helper function to get transaction amount from row
+function getTransactionAmount(row: any): number | null {
+  const transAmount = parseFloat(row['Trans. Amount'] || row['Transaction Amount']);
+  return isNaN(transAmount) ? null : transAmount;
+}
+
 // Required fields in the XLSX file
 const REQUIRED_FIELDS = [
   'Creditor/Debtor Full Name',
@@ -50,7 +56,7 @@ const REQUIRED_FIELDS = [
   'Invoice Date',
   'Job Number',
   'Due Date',
-  'Trans. Amount',
+  ['Trans. Amount', 'Transaction Amount'], // Allow either field name
   'Outstanding Amount',
   'Tax Amount'
 ];
@@ -118,11 +124,18 @@ export function validateXlsxData(data: any[]): { valid: boolean; error?: string 
 
   // Check for required fields
   const firstRow = data[0];
-  const missingFields = REQUIRED_FIELDS.filter(field => !(field in firstRow));
+  const missingFields = REQUIRED_FIELDS.filter(field => {
+    if (Array.isArray(field)) {
+      // For fields with alternative names, check if at least one exists
+      return !field.some(f => f in firstRow);
+    }
+    return !(field in firstRow);
+  });
+  
   if (missingFields.length > 0) {
     return { 
       valid: false, 
-      error: `Missing required fields: ${missingFields.join(', ')}` 
+      error: `Missing required fields: ${missingFields.map(f => Array.isArray(f) ? f[0] : f).join(', ')}` 
     };
   }
 
@@ -131,10 +144,10 @@ export function validateXlsxData(data: any[]): { valid: boolean; error?: string 
     const row = data[i];
     
     // Check if Trans. Amount equals Outstanding Amount
-    const transAmount = parseFloat(row['Trans. Amount']);
+    const transAmount = getTransactionAmount(row);
     const outstandingAmount = parseFloat(row['Outstanding Amount']);
     
-    if (isNaN(transAmount) || isNaN(outstandingAmount)) {
+    if (transAmount === null || isNaN(outstandingAmount)) {
       return {
         valid: false,
         error: `Row ${i + 1}: Invalid amount format for Trans. Amount or Outstanding Amount`
@@ -208,7 +221,7 @@ export function transformToCsvRows(xlsxRow: any): [CsvRow, CsvRow] {
   
   // Calculate UnitAmounts
   const taxAmount = parseFloat(xlsxRow['Tax Amount']);
-  const transAmount = parseFloat(xlsxRow['Trans. Amount']);
+  const transAmount = getTransactionAmount(xlsxRow) || 0;
   const firstLineUnitAmount = taxAmount / 0.1;
   const secondLineUnitAmount = transAmount - taxAmount - firstLineUnitAmount;
 
