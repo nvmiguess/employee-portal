@@ -90,7 +90,16 @@ export async function GET() {
     }
     
     // Test direct Supabase connection
-    let supabaseTest = {};
+    let supabaseTest: {
+      connectionError?: string;
+      connected?: boolean;
+      version?: any;
+      companyError?: string;
+      companyCount?: number;
+      employeeError?: string;
+      employeeCount?: number;
+      error?: string;
+    } = {};
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
       const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -137,7 +146,15 @@ export async function GET() {
     }
     
     // Check for Next.js cache
-    let cacheInfo = {};
+    let cacheInfo: {
+      exists?: boolean;
+      isDirectory?: boolean;
+      size?: number;
+      modified?: Date;
+      subdirectories?: string[];
+      error?: string;
+    } = {};
+    
     try {
       const cacheDir = path.join(rootDir, '.next/cache');
       const exists = fs.existsSync(cacheDir);

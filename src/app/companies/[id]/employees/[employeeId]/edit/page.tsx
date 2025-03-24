@@ -108,7 +108,7 @@ export default function EditCompanyEmployeePage({
           position: formData.position,
           department: formData.department,
           status: formData.status,
-          company_id: formData.company_id === '' ? null : formData.company_id,
+          company_id: formData.company_id === 0 ? null : formData.company_id,
           hire_date: formData.hire_date
         })
         .eq('id', employeeId);

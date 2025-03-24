@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -9,7 +9,7 @@ interface Company {
   name: string;
 }
 
-export default function AddEmployeePage() {
+function AddEmployeeForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const companyIdParam = searchParams.get('companyId');
@@ -262,5 +262,18 @@ export default function AddEmployeePage() {
         </div>
       </form>
     </div>
+  );
+}
+
+export default function AddEmployeePage() {
+  return (
+    <Suspense fallback={
+      <div className="p-8 text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+        <p className="mt-4">Loading...</p>
+      </div>
+    }>
+      <AddEmployeeForm />
+    </Suspense>
   );
 } 
